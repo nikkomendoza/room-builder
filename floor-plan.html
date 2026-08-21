@@ -20,7 +20,10 @@
     --furniture-fill: #143a5c;
     --furniture-stroke: #4fc3f7;
     --furniture-selected: #ffb74d;
+    --wall-fill: #365a78;
+    --wall-stroke: #9fc8e8;
     --door-color: #ffcc80;
+    --window-color: #80e0ff;
     --danger: #ff6b6b;
     --catalog-hover: #163a5e;
   }
@@ -184,8 +187,9 @@
     color: var(--danger);
   }
 
-  #toolbar {
+  #toolbar, #add-toolbar {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     margin-top: 10px;
   }
@@ -214,6 +218,16 @@
     text-anchor: middle;
     dominant-baseline: middle;
   }
+  .wall-rect {
+    fill: var(--wall-fill);
+    stroke: var(--wall-stroke);
+    stroke-width: 1.5;
+    cursor: grab;
+  }
+  .wall-rect.selected {
+    stroke: var(--furniture-selected);
+    stroke-width: 2.5;
+  }
   .remove-btn circle {
     fill: var(--danger);
     cursor: pointer;
@@ -238,10 +252,22 @@
     pointer-events: none;
     font-weight: bold;
   }
-  .door-group { cursor: ew-resize; }
+  .door-group, .window-group { cursor: ew-resize; }
+  .door-hit, .window-hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 22;
+    cursor: ew-resize;
+  }
   .door-opening { stroke: var(--bg); stroke-width: 3; }
   .door-swing { fill: none; stroke: var(--door-color); stroke-width: 1; stroke-dasharray: 3,2; }
   .door-panel { stroke: var(--door-color); stroke-width: 2; }
+  .door-panel.selected, .door-opening.selected + .door-panel { stroke: var(--furniture-selected); }
+  .door-slide-panel { stroke: var(--door-color); stroke-width: 2.5; }
+  .door-slide-panel.selected { stroke: var(--furniture-selected); }
+  .window-opening { stroke: var(--bg); stroke-width: 3; }
+  .window-line { stroke: var(--window-color); stroke-width: 2; }
+  .window-line.selected { stroke: var(--furniture-selected); }
 
   .ruler-text {
     fill: var(--text-dim);
@@ -288,23 +314,29 @@
     <h2>Room Info</h2>
     <div id="room-info"></div>
 
-    <h2>Actions</h2>
+    <h2>Selected Item</h2>
     <div id="toolbar">
       <button class="btn" id="rotate-btn">Rotate (R)</button>
       <button class="btn danger" id="delete-btn">Delete</button>
     </div>
-    <div id="toolbar2" style="margin-top:8px;">
-      <button class="btn" id="add-door-btn">+ Add Door</button>
+
+    <h2>Add to Room</h2>
+    <div id="add-toolbar">
+      <button class="btn" id="add-wall-btn">+ Wall</button>
+      <button class="btn" id="add-swing-door-btn">+ Swing Door</button>
+      <button class="btn" id="add-sliding-door-btn">+ Sliding Door</button>
+      <button class="btn" id="add-window-btn">+ Window</button>
     </div>
 
     <h2>Instructions</h2>
     <div class="instructions">
-      Click a catalog item to add it to the room.<br>
-      Click furniture to select it.<br>
-      Drag selected furniture to move it.<br>
-      Press <kbd>R</kbd> or the rotate button to turn it 90&deg;.<br>
-      Press <kbd>Delete</kbd>/<kbd>Backspace</kbd> or the &times; button to remove it.<br>
-      Drag a door along its wall to slide it.<br>
+      Click a catalog item to add furniture.<br>
+      Click any item (furniture, wall, door, window) to select it.<br>
+      Drag a selected furniture or wall to move it.<br>
+      Press <kbd>R</kbd> or the rotate button to turn furniture/walls 90&deg;.<br>
+      Press <kbd>Delete</kbd>/<kbd>Backspace</kbd> or the &times; button to remove the selection.<br>
+      Drag a door or window along its wall to slide it.<br>
+      Select an interior wall first, then click Add Door/Window to place it on that wall (otherwise it's added to the room's top wall).<br>
       Edit Width/Depth to resize the room (1&Prime; steps).
     </div>
 
@@ -325,6 +357,7 @@
     { type: "dresser", label: "Dresser", widthFt: 4.59, depthFt: 1.57 },
     { type: "open-closet", label: "Open Closet", widthFt: 5.74, depthFt: 1.67 },
     { type: "corner-pillar", label: "Corner Pillar", widthFt: 1.33, depthFt: 1.33 },
+    { type: "block", label: "Block", widthFt: 1, depthFt: 1 },
     { type: "nightstand", label: "Nightstand", widthFt: 1.5, depthFt: 1.5 },
     { type: "nightstand-small", label: "Nightstand (small)", widthFt: 1, depthFt: 1.25 },
     { type: "sofa", label: "Sofa", widthFt: 7, depthFt: 3 },
@@ -348,16 +381,20 @@
   var room = { widthIn: 14 * 12, depthIn: 12 * 12 + 6 };
 
   var furniture = []; // furnitureItem[]
+  var walls = [];      // interior partition walls: { id, widthIn, depthIn, xIn, yIn, rotationDeg }
   var doors = [
-    { id: "door-1", wall: "bottom", positionIn: 24, widthIn: 30 }
+    { id: "door-1", wallRef: "room:bottom", positionIn: 24, widthIn: 30, kind: "swing" }
   ];
+  var windows = []; // { id, wallRef, positionIn, widthIn }
 
   var nextId = 1;
-  var selectedFurnitureId = null;
+  var selected = null; // { kind: 'furniture'|'wall'|'door'|'window', id }
 
   var SNAP_IN = 1; // grid snap increment in inches (1")
   var PX_PER_IN = 4; // scale: pixels per inch (=> 48px per foot)
   var MARGIN = { top: 40, left: 40, right: 20, bottom: 60 };
+  var WALL_THICKNESS_IN = 4;
+  var WALL_DEFAULT_LENGTH_IN = 48;
 
   // ---------- SVG helpers ----------
   var SVG_NS = "http://www.w3.org/2000/svg";
@@ -385,8 +422,13 @@
     svg.setAttribute("viewBox", "0 0 " + w + " " + h);
   }
 
+  function isSelected(kind, id) {
+    return !!selected && selected.kind === kind && selected.id === id;
+  }
+
   // ---------- Rendering ----------
   function render() {
+    reclampAttachments();
     updateSvgSize();
     svg.innerHTML = "";
 
@@ -394,7 +436,9 @@
     renderRoomOutline();
     renderRulers();
     renderScaleBar();
+    walls.forEach(renderWall);
     doors.forEach(renderDoor);
+    windows.forEach(renderWindow);
     furniture.forEach(renderFurniture);
 
     renderRoomInfo();
@@ -403,7 +447,6 @@
   function renderGrid() {
     var origin = roomOriginPx();
     var g = el("g", { class: "grid" });
-    // vertical lines every 12" (1ft), major every 5ft
     for (var xIn = 0; xIn <= room.widthIn; xIn += 12) {
       var x = origin.x + xIn * PX_PER_IN;
       var isMajor = (xIn / 12) % 5 === 0;
@@ -445,7 +488,6 @@
   function renderRulers() {
     var origin = roomOriginPx();
     var g = el("g", { class: "rulers" });
-    // top ruler (width), ticks every foot, labels every 2ft
     for (var xIn = 0; xIn <= room.widthIn; xIn += 12) {
       var x = origin.x + xIn * PX_PER_IN;
       g.appendChild(el("line", { class: "ruler-tick", x1: x, y1: origin.y - 8, x2: x, y2: origin.y }));
@@ -455,7 +497,6 @@
         g.appendChild(t);
       }
     }
-    // left ruler (depth)
     for (var yIn = 0; yIn <= room.depthIn; yIn += 12) {
       var y = origin.y + yIn * PX_PER_IN;
       g.appendChild(el("line", { class: "ruler-tick", x1: origin.x - 8, y1: y, x2: origin.x, y2: y }));
@@ -485,6 +526,31 @@
     svg.appendChild(g);
   }
 
+  // ---------- Movable rect helpers (shared by furniture + walls) ----------
+  // These items store xIn/yIn as the top-left of their CURRENT (post-rotation)
+  // axis-aligned footprint, and widthIn/depthIn as that footprint's size.
+  // Rotating swaps widthIn/depthIn (re-centering so the pivot is the item's
+  // center, not its corner) rather than applying an SVG transform, since a
+  // plain rectangle rotated 90 degrees is visually identical to one with
+  // width/height swapped - this keeps labels upright and avoids a double
+  // rotation bug from combining a dimension swap with a transform.
+  function clampRectToRoom(item) {
+    item.xIn = Math.max(0, Math.min(item.xIn, Math.max(0, room.widthIn - item.widthIn)));
+    item.yIn = Math.max(0, Math.min(item.yIn, Math.max(0, room.depthIn - item.depthIn)));
+  }
+
+  function rotateRect(item) {
+    var cx = item.xIn + item.widthIn / 2;
+    var cy = item.yIn + item.depthIn / 2;
+    var tmp = item.widthIn;
+    item.widthIn = item.depthIn;
+    item.depthIn = tmp;
+    item.rotationDeg = (item.rotationDeg + 90) % 360;
+    item.xIn = cx - item.widthIn / 2;
+    item.yIn = cy - item.depthIn / 2;
+    clampRectToRoom(item);
+  }
+
   // ---------- Furniture rendering ----------
   function renderFurniture(item) {
     var origin = roomOriginPx();
@@ -494,16 +560,13 @@
     var d = item.depthIn * PX_PER_IN;
     var cx = x + w / 2;
     var cy = y + d / 2;
+    var sel = isSelected("furniture", item.id);
 
-    var g = el("g", {
-      class: "furniture-item",
-      "data-id": item.id,
-      transform: "rotate(" + item.rotationDeg + " " + cx + " " + cy + ")"
-    });
+    var g = el("g", { class: "furniture-item", "data-id": item.id });
 
     var rect = el("rect", {
       x: x, y: y, width: w, height: d,
-      class: "furniture-rect" + (item.id === selectedFurnitureId ? " selected" : ""),
+      class: "furniture-rect" + (sel ? " selected" : ""),
       rx: 3
     });
     g.appendChild(rect);
@@ -516,103 +579,227 @@
     dims.textContent = fmtFtIn(item.widthIn) + " x " + fmtFtIn(item.depthIn);
     g.appendChild(dims);
 
-    if (item.id === selectedFurnitureId) {
-      // rotate handle (top-right-ish, but keep un-rotated visually by placing outside the rotate transform)
-      var removeBtn = el("g", { class: "remove-btn", transform: "rotate(" + (-item.rotationDeg) + " " + (x + w) + " " + y + ")" });
-      removeBtn.appendChild(el("circle", { cx: x + w, cy: y, r: 8 }));
-      var xText = el("text", { x: x + w, y: y + 1 });
-      xText.textContent = "×";
-      removeBtn.appendChild(xText);
-      removeBtn.addEventListener("mousedown", function (e) {
-        e.stopPropagation();
-      });
-      removeBtn.addEventListener("click", function (e) {
-        e.stopPropagation();
-        removeFurniture(item.id);
-      });
-      g.appendChild(removeBtn);
-
-      var rotateBtn = el("g", { class: "rotate-btn", transform: "rotate(" + (-item.rotationDeg) + " " + x + " " + y + ")" });
-      rotateBtn.appendChild(el("circle", { cx: x, cy: y, r: 8 }));
-      var rText = el("text", { x: x, y: y + 1 });
-      rText.textContent = "R";
-      rotateBtn.appendChild(rText);
-      rotateBtn.addEventListener("mousedown", function (e) {
-        e.stopPropagation();
-      });
-      rotateBtn.addEventListener("click", function (e) {
-        e.stopPropagation();
-        rotateFurniture(item.id);
-      });
-      g.appendChild(rotateBtn);
+    if (sel) {
+      appendRemoveButton(g, x + w, y, function () { removeEntity("furniture", item.id); });
+      appendRotateButton(g, x, y, function () { rotateEntity("furniture", item.id); });
     }
 
     g.addEventListener("mousedown", function (e) {
-      startDragFurniture(e, item.id);
+      startDragMovable(e, "furniture", item.id);
     });
 
     svg.appendChild(g);
   }
 
-  // ---------- Door rendering ----------
-  function doorGeometry(door) {
+  // ---------- Wall rendering ----------
+  function renderWall(wall) {
     var origin = roomOriginPx();
-    var wIn = room.widthIn, dIn = room.depthIn;
-    var pos = door.positionIn;
-    var half = door.widthIn / 2;
-    var x1, y1, x2, y2, swingCx, swingCy, swingStart, swingEnd;
+    var x = origin.x + wall.xIn * PX_PER_IN;
+    var y = origin.y + wall.yIn * PX_PER_IN;
+    var w = wall.widthIn * PX_PER_IN;
+    var d = wall.depthIn * PX_PER_IN;
+    var sel = isSelected("wall", wall.id);
 
-    if (door.wall === "top" || door.wall === "bottom") {
-      var y = door.wall === "top" ? origin.y : origin.y + dIn * PX_PER_IN;
-      x1 = origin.x + (pos - half) * PX_PER_IN;
-      x2 = origin.x + (pos + half) * PX_PER_IN;
-      y1 = y2 = y;
-    } else {
-      var x = door.wall === "left" ? origin.x : origin.x + wIn * PX_PER_IN;
-      y1 = origin.y + (pos - half) * PX_PER_IN;
-      y2 = origin.y + (pos + half) * PX_PER_IN;
-      x1 = x2 = x;
+    var g = el("g", { class: "wall-item", "data-id": wall.id });
+
+    var rect = el("rect", {
+      x: x, y: y, width: w, height: d,
+      class: "wall-rect" + (sel ? " selected" : "")
+    });
+    g.appendChild(rect);
+
+    if (sel) {
+      appendRemoveButton(g, x + w, y, function () { removeEntity("wall", wall.id); });
+      appendRotateButton(g, x, y, function () { rotateEntity("wall", wall.id); });
     }
-    return { x1: x1, y1: y1, x2: x2, y2: y2 };
-  }
-
-  function renderDoor(door) {
-    var geo = doorGeometry(door);
-    var g = el("g", { class: "door-group", "data-door-id": door.id });
-
-    // opening: erase wall segment
-    g.appendChild(el("line", { class: "door-opening", x1: geo.x1, y1: geo.y1, x2: geo.x2, y2: geo.y2 }));
-
-    // swing arc + panel, oriented into the room
-    var radius = door.widthIn * PX_PER_IN;
-    var hingeX, hingeY, panelEndX, panelEndY, arcSweep;
-    var origin = roomOriginPx();
-
-    if (door.wall === "top") {
-      hingeX = geo.x1; hingeY = geo.y1;
-      panelEndX = hingeX; panelEndY = hingeY + radius;
-      g.appendChild(el("path", { class: "door-swing",
-        d: "M " + panelEndX + " " + panelEndY + " A " + radius + " " + radius + " 0 0 1 " + geo.x2 + " " + geo.y1 }));
-    } else if (door.wall === "bottom") {
-      hingeX = geo.x1; hingeY = geo.y1;
-      panelEndX = hingeX; panelEndY = hingeY - radius;
-      g.appendChild(el("path", { class: "door-swing",
-        d: "M " + panelEndX + " " + panelEndY + " A " + radius + " " + radius + " 0 0 0 " + geo.x2 + " " + geo.y1 }));
-    } else if (door.wall === "left") {
-      hingeX = geo.x1; hingeY = geo.y1;
-      panelEndX = hingeX + radius; panelEndY = hingeY;
-      g.appendChild(el("path", { class: "door-swing",
-        d: "M " + panelEndX + " " + panelEndY + " A " + radius + " " + radius + " 0 0 0 " + geo.x1 + " " + geo.y2 }));
-    } else { // right
-      hingeX = geo.x1; hingeY = geo.y1;
-      panelEndX = hingeX - radius; panelEndY = hingeY;
-      g.appendChild(el("path", { class: "door-swing",
-        d: "M " + panelEndX + " " + panelEndY + " A " + radius + " " + radius + " 0 0 1 " + geo.x1 + " " + geo.y2 }));
-    }
-    g.appendChild(el("line", { class: "door-panel", x1: hingeX, y1: hingeY, x2: panelEndX, y2: panelEndY }));
 
     g.addEventListener("mousedown", function (e) {
-      startDragDoor(e, door.id);
+      startDragMovable(e, "wall", wall.id);
+    });
+
+    svg.appendChild(g);
+  }
+
+  function appendRemoveButton(g, px, py, onRemove) {
+    var removeBtn = el("g", { class: "remove-btn" });
+    removeBtn.appendChild(el("circle", { cx: px, cy: py, r: 8 }));
+    var xText = el("text", { x: px, y: py + 1 });
+    xText.textContent = "×";
+    removeBtn.appendChild(xText);
+    removeBtn.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+    removeBtn.addEventListener("click", function (e) { e.stopPropagation(); onRemove(); });
+    g.appendChild(removeBtn);
+  }
+
+  function appendRotateButton(g, px, py, onRotate) {
+    var rotateBtn = el("g", { class: "rotate-btn" });
+    rotateBtn.appendChild(el("circle", { cx: px, cy: py, r: 8 }));
+    var rText = el("text", { x: px, y: py + 1 });
+    rText.textContent = "R";
+    rotateBtn.appendChild(rText);
+    rotateBtn.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+    rotateBtn.addEventListener("click", function (e) { e.stopPropagation(); onRotate(); });
+    g.appendChild(rotateBtn);
+  }
+
+  // ---------- Wall-segment geometry (shared by doors + windows) ----------
+  // Every door/window attaches to a "wallRef": 'room:top'|'room:right'|
+  // 'room:bottom'|'room:left', or 'wall:<id>' for an interior partition wall.
+  function getWallSegment(wallRef) {
+    if (wallRef === "room:top") return { x1: 0, y1: 0, x2: room.widthIn, y2: 0 };
+    if (wallRef === "room:bottom") return { x1: 0, y1: room.depthIn, x2: room.widthIn, y2: room.depthIn };
+    if (wallRef === "room:left") return { x1: 0, y1: 0, x2: 0, y2: room.depthIn };
+    if (wallRef === "room:right") return { x1: room.widthIn, y1: 0, x2: room.widthIn, y2: room.depthIn };
+    if (wallRef && wallRef.indexOf("wall:") === 0) {
+      var wall = walls.find(function (w) { return w.id === wallRef.slice(5); });
+      if (!wall) return null;
+      if (wall.widthIn >= wall.depthIn) {
+        var cy = wall.yIn + wall.depthIn / 2;
+        return { x1: wall.xIn, y1: cy, x2: wall.xIn + wall.widthIn, y2: cy };
+      }
+      var cx = wall.xIn + wall.widthIn / 2;
+      return { x1: cx, y1: wall.yIn, x2: cx, y2: wall.yIn + wall.depthIn };
+    }
+    return null;
+  }
+
+  function segLength(seg) {
+    return Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1);
+  }
+
+  function segIsHorizontal(seg) {
+    return Math.abs(seg.y2 - seg.y1) < Math.abs(seg.x2 - seg.x1);
+  }
+
+  function pointAtPosition(seg, positionIn) {
+    var len = segLength(seg);
+    var t = len === 0 ? 0 : positionIn / len;
+    return { x: seg.x1 + (seg.x2 - seg.x1) * t, y: seg.y1 + (seg.y2 - seg.y1) * t };
+  }
+
+  // Perpendicular unit vector, oriented toward the room's center so swing
+  // doors/openings always face into the room (works for any of the 4 room
+  // walls, and picks a consistent side for interior walls too).
+  function inwardNormal(seg) {
+    var len = segLength(seg);
+    var ux = (seg.x2 - seg.x1) / len, uy = (seg.y2 - seg.y1) / len;
+    var perp = { x: -uy, y: ux };
+    var midx = (seg.x1 + seg.x2) / 2, midy = (seg.y1 + seg.y2) / 2;
+    var toCenter = { x: room.widthIn / 2 - midx, y: room.depthIn / 2 - midy };
+    var dot = perp.x * toCenter.x + perp.y * toCenter.y;
+    if (dot < 0) perp = { x: -perp.x, y: -perp.y };
+    return perp;
+  }
+
+  function clampPositionToSegment(positionIn, seg, widthIn) {
+    var len = segLength(seg);
+    var half = widthIn / 2;
+    var lo = half, hi = Math.max(half, len - half);
+    return Math.max(lo, Math.min(positionIn, hi));
+  }
+
+  // Re-clamp every door/window's position against its current wall segment,
+  // and drop any whose wall no longer exists. Called at the top of every
+  // render so wall moves/rotates/resizes/deletes and room resizes always
+  // keep attachments consistent, regardless of what triggered the change.
+  function reclampAttachments() {
+    doors = doors.filter(function (d) { return !!getWallSegment(d.wallRef); });
+    windows = windows.filter(function (w) { return !!getWallSegment(w.wallRef); });
+    doors.forEach(function (d) {
+      var seg = getWallSegment(d.wallRef);
+      d.positionIn = clampPositionToSegment(d.positionIn, seg, d.widthIn);
+    });
+    windows.forEach(function (w) {
+      var seg = getWallSegment(w.wallRef);
+      w.positionIn = clampPositionToSegment(w.positionIn, seg, w.widthIn);
+    });
+  }
+
+  // ---------- Door rendering ----------
+  function renderDoor(door) {
+    var seg = getWallSegment(door.wallRef);
+    if (!seg) return;
+    var origin = roomOriginPx();
+    var p1In = pointAtPosition(seg, door.positionIn - door.widthIn / 2);
+    var p2In = pointAtPosition(seg, door.positionIn + door.widthIn / 2);
+    var x1 = origin.x + p1In.x * PX_PER_IN, y1 = origin.y + p1In.y * PX_PER_IN;
+    var x2 = origin.x + p2In.x * PX_PER_IN, y2 = origin.y + p2In.y * PX_PER_IN;
+    var sel = isSelected("door", door.id);
+
+    var g = el("g", { class: "door-group", "data-id": door.id });
+
+    // wide invisible hit-path for easier click/drag targeting
+    g.appendChild(el("line", { class: "door-hit", x1: x1, y1: y1, x2: x2, y2: y2 }));
+    // opening: erase wall segment
+    g.appendChild(el("line", { class: "door-opening", x1: x1, y1: y1, x2: x2, y2: y2 }));
+
+    if (door.kind === "sliding") {
+      var n = inwardNormal(seg);
+      var offsetPx = 4 * PX_PER_IN;
+      var nx = n.x * offsetPx, ny = n.y * offsetPx;
+      var cls = "door-slide-panel" + (sel ? " selected" : "");
+      g.appendChild(el("line", { class: cls, x1: x1 + nx, y1: y1 + ny, x2: x2 + nx, y2: y2 + ny }));
+      g.appendChild(el("line", { class: cls, x1: x1 - nx, y1: y1 - ny, x2: x2 - nx, y2: y2 - ny }));
+    } else {
+      var radiusPx = door.widthIn * PX_PER_IN;
+      var n2 = inwardNormal(seg);
+      var panelEndX = x1 + n2.x * radiusPx;
+      var panelEndY = y1 + n2.y * radiusPx;
+      // arc sweep direction depends on which side of the hinge the swing normal falls on
+      var hx = x2 - x1, hy = y2 - y1;
+      var cross = hx * n2.y - hy * n2.x;
+      var sweep = cross > 0 ? 1 : 0;
+      var panelCls = "door-panel" + (sel ? " selected" : "");
+      g.appendChild(el("path", {
+        class: "door-swing",
+        d: "M " + panelEndX + " " + panelEndY + " A " + radiusPx + " " + radiusPx + " 0 0 " + sweep + " " + x2 + " " + y2
+      }));
+      g.appendChild(el("line", { class: panelCls, x1: x1, y1: y1, x2: panelEndX, y2: panelEndY }));
+    }
+
+    if (sel) {
+      var midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+      var nrm = inwardNormal(seg);
+      appendRemoveButton(g, midX + nrm.x * 18, midY + nrm.y * 18, function () { removeEntity("door", door.id); });
+    }
+
+    g.addEventListener("mousedown", function (e) {
+      startDragOnWall(e, "door", door.id);
+    });
+
+    svg.appendChild(g);
+  }
+
+  // ---------- Window rendering ----------
+  function renderWindow(win) {
+    var seg = getWallSegment(win.wallRef);
+    if (!seg) return;
+    var origin = roomOriginPx();
+    var p1In = pointAtPosition(seg, win.positionIn - win.widthIn / 2);
+    var p2In = pointAtPosition(seg, win.positionIn + win.widthIn / 2);
+    var x1 = origin.x + p1In.x * PX_PER_IN, y1 = origin.y + p1In.y * PX_PER_IN;
+    var x2 = origin.x + p2In.x * PX_PER_IN, y2 = origin.y + p2In.y * PX_PER_IN;
+    var sel = isSelected("window", win.id);
+
+    var g = el("g", { class: "window-group", "data-id": win.id });
+
+    g.appendChild(el("line", { class: "window-hit", x1: x1, y1: y1, x2: x2, y2: y2 }));
+    g.appendChild(el("line", { class: "window-opening", x1: x1, y1: y1, x2: x2, y2: y2 }));
+
+    var n = inwardNormal(seg);
+    var offsetPx = 2.5 * PX_PER_IN;
+    var nx = n.x * offsetPx, ny = n.y * offsetPx;
+    var cls = "window-line" + (sel ? " selected" : "");
+    g.appendChild(el("line", { class: cls, x1: x1 + nx, y1: y1 + ny, x2: x2 + nx, y2: y2 + ny }));
+    g.appendChild(el("line", { class: cls, x1: x1 - nx, y1: y1 - ny, x2: x2 - nx, y2: y2 - ny }));
+
+    if (sel) {
+      var midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+      appendRemoveButton(g, midX + n.x * 18, midY + n.y * 18, function () { removeEntity("window", win.id); });
+    }
+
+    g.addEventListener("mousedown", function (e) {
+      startDragOnWall(e, "window", win.id);
     });
 
     svg.appendChild(g);
@@ -625,6 +812,8 @@
     html += infoLine("Dimensions", fmtFtIn(room.widthIn) + " × " + fmtFtIn(room.depthIn));
     html += infoLine("Area", areaSqFt.toFixed(1) + " sq ft");
     html += infoLine("Doors", String(doors.length));
+    html += infoLine("Windows", String(windows.length));
+    html += infoLine("Walls", String(walls.length));
     html += infoLine("Furniture items", String(furniture.length));
     document.getElementById("room-info").innerHTML = html;
   }
@@ -632,7 +821,7 @@
     return '<div class="info-line"><span>' + label + '</span><span>' + value + "</span></div>";
   }
 
-  // ---------- Actions ----------
+  // ---------- Add actions ----------
   function addFurniture(catalogEntry) {
     var widthIn = ftToIn(catalogEntry.widthFt);
     var depthIn = ftToIn(catalogEntry.depthFt);
@@ -646,59 +835,112 @@
       yIn: 12,
       rotationDeg: 0
     };
-    // clamp within room in case it's near top-left corner and room is small
-    item.xIn = Math.max(0, Math.min(item.xIn, Math.max(0, room.widthIn - widthIn)));
-    item.yIn = Math.max(0, Math.min(item.yIn, Math.max(0, room.depthIn - depthIn)));
+    clampRectToRoom(item);
     furniture.push(item);
-    selectedFurnitureId = item.id;
+    selected = { kind: "furniture", id: item.id };
     render();
   }
 
-  function removeFurniture(id) {
-    furniture = furniture.filter(function (f) { return f.id !== id; });
-    if (selectedFurnitureId === id) selectedFurnitureId = null;
+  function addWall() {
+    var wall = {
+      id: "w" + (nextId++),
+      widthIn: Math.min(WALL_DEFAULT_LENGTH_IN, room.widthIn),
+      depthIn: WALL_THICKNESS_IN,
+      xIn: 24,
+      yIn: 24,
+      rotationDeg: 0
+    };
+    clampRectToRoom(wall);
+    walls.push(wall);
+    selected = { kind: "wall", id: wall.id };
     render();
   }
 
-  function rotateFurniture(id) {
-    var item = furniture.find(function (f) { return f.id === id; });
-    if (!item) return;
-    item.rotationDeg = (item.rotationDeg + 90) % 360;
-    var tmp = item.widthIn;
-    item.widthIn = item.depthIn;
-    item.depthIn = tmp;
-    // reclamp position
-    item.xIn = Math.max(0, Math.min(item.xIn, Math.max(0, room.widthIn - item.widthIn)));
-    item.yIn = Math.max(0, Math.min(item.yIn, Math.max(0, room.depthIn - item.depthIn)));
-    render();
+  // If an interior wall is currently selected, new doors/windows attach to
+  // it; otherwise they default to the room's top wall.
+  function targetWallRef() {
+    if (selected && selected.kind === "wall") return "wall:" + selected.id;
+    return "room:top";
   }
 
-  function selectFurniture(id) {
-    selectedFurnitureId = id;
-    render();
-  }
-
-  function addDoor() {
-    doors.push({
+  function addDoor(kind) {
+    var wallRef = targetWallRef();
+    var seg = getWallSegment(wallRef);
+    var widthIn = 30;
+    var door = {
       id: "door-" + (nextId++),
-      wall: "top",
-      positionIn: Math.min(30, room.widthIn / 2),
-      widthIn: 30
-    });
+      wallRef: wallRef,
+      positionIn: clampPositionToSegment(segLength(seg) / 2, seg, widthIn),
+      widthIn: widthIn,
+      kind: kind
+    };
+    doors.push(door);
+    selected = { kind: "door", id: door.id };
     render();
   }
 
-  // ---------- Drag: furniture ----------
+  function addWindow() {
+    var wallRef = targetWallRef();
+    var seg = getWallSegment(wallRef);
+    var widthIn = 36;
+    var win = {
+      id: "win-" + (nextId++),
+      wallRef: wallRef,
+      positionIn: clampPositionToSegment(segLength(seg) / 2, seg, widthIn),
+      widthIn: widthIn
+    };
+    windows.push(win);
+    selected = { kind: "window", id: win.id };
+    render();
+  }
+
+  // ---------- Select / remove / rotate (generic across entity kinds) ----------
+  function selectEntity(kind, id) {
+    selected = { kind: kind, id: id };
+    render();
+  }
+
+  function removeEntity(kind, id) {
+    if (kind === "furniture") {
+      furniture = furniture.filter(function (f) { return f.id !== id; });
+    } else if (kind === "wall") {
+      walls = walls.filter(function (w) { return w.id !== id; });
+      var ref = "wall:" + id;
+      doors = doors.filter(function (d) { return d.wallRef !== ref; });
+      windows = windows.filter(function (w) { return w.wallRef !== ref; });
+    } else if (kind === "door") {
+      doors = doors.filter(function (d) { return d.id !== id; });
+    } else if (kind === "window") {
+      windows = windows.filter(function (w) { return w.id !== id; });
+    }
+    if (selected && selected.kind === kind && selected.id === id) selected = null;
+    render();
+  }
+
+  function rotateEntity(kind, id) {
+    var item;
+    if (kind === "furniture") item = furniture.find(function (f) { return f.id === id; });
+    else if (kind === "wall") item = walls.find(function (w) { return w.id === id; });
+    else return; // doors/windows follow their wall's orientation, no independent rotation
+    if (!item) return;
+    rotateRect(item);
+    render();
+  }
+
+  // ---------- Drag ----------
   var dragState = null;
 
-  function startDragFurniture(e, id) {
+  function startDragMovable(e, kind, id) {
     e.preventDefault();
-    selectFurniture(id);
-    var item = furniture.find(function (f) { return f.id === id; });
+    selectEntity(kind, id);
+    var item = kind === "furniture"
+      ? furniture.find(function (f) { return f.id === id; })
+      : walls.find(function (w) { return w.id === id; });
     if (!item) return;
     var pt = getSvgPoint(e);
     dragState = {
-      type: "furniture",
+      mode: "movable",
+      kind: kind,
       id: id,
       offsetXIn: pt.xIn - item.xIn,
       offsetYIn: pt.yIn - item.yIn
@@ -707,17 +949,21 @@
     window.addEventListener("mouseup", onDragEnd);
   }
 
-  function startDragDoor(e, id) {
+  function startDragOnWall(e, kind, id) {
     e.preventDefault();
+    selectEntity(kind, id);
+    var item = kind === "door"
+      ? doors.find(function (d) { return d.id === id; })
+      : windows.find(function (w) { return w.id === id; });
+    if (!item) return;
     var pt = getSvgPoint(e);
-    var door = doors.find(function (d) { return d.id === id; });
-    if (!door) return;
     dragState = {
-      type: "door",
+      mode: "wall-slide",
+      kind: kind,
       id: id,
       startXIn: pt.xIn,
       startYIn: pt.yIn,
-      startPos: door.positionIn
+      startPos: item.positionIn
     };
     window.addEventListener("mousemove", onDragMove);
     window.addEventListener("mouseup", onDragEnd);
@@ -744,25 +990,28 @@
     if (!dragState) return;
     var pt = getSvgPoint(e);
 
-    if (dragState.type === "furniture") {
-      var item = furniture.find(function (f) { return f.id === dragState.id; });
+    if (dragState.mode === "movable") {
+      var item = dragState.kind === "furniture"
+        ? furniture.find(function (f) { return f.id === dragState.id; })
+        : walls.find(function (w) { return w.id === dragState.id; });
       if (!item) return;
-      var newX = snap(pt.xIn - dragState.offsetXIn);
-      var newY = snap(pt.yIn - dragState.offsetYIn);
-      newX = Math.max(0, Math.min(newX, room.widthIn - item.widthIn));
-      newY = Math.max(0, Math.min(newY, room.depthIn - item.depthIn));
-      item.xIn = newX;
-      item.yIn = newY;
+      item.xIn = snap(pt.xIn - dragState.offsetXIn);
+      item.yIn = snap(pt.yIn - dragState.offsetYIn);
+      clampRectToRoom(item);
       render();
-    } else if (dragState.type === "door") {
-      var door = doors.find(function (d) { return d.id === dragState.id; });
-      if (!door) return;
-      var wallLen = (door.wall === "top" || door.wall === "bottom") ? room.widthIn : room.depthIn;
-      var deltaIn = (door.wall === "top" || door.wall === "bottom") ? (pt.xIn - dragState.startXIn) : (pt.yIn - dragState.startYIn);
-      var newPos = snap(dragState.startPos + deltaIn);
-      var half = door.widthIn / 2;
-      newPos = Math.max(half, Math.min(newPos, wallLen - half));
-      door.positionIn = newPos;
+    } else if (dragState.mode === "wall-slide") {
+      var entity = dragState.kind === "door"
+        ? doors.find(function (d) { return d.id === dragState.id; })
+        : windows.find(function (w) { return w.id === dragState.id; });
+      if (!entity) return;
+      var seg = getWallSegment(entity.wallRef);
+      if (!seg) return;
+      var horizontal = segIsHorizontal(seg);
+      var deltaIn = horizontal ? (pt.xIn - dragState.startXIn) : (pt.yIn - dragState.startYIn);
+      // account for wall direction (segment may run either direction along its axis)
+      var dirSign = horizontal ? Math.sign(seg.x2 - seg.x1) : Math.sign(seg.y2 - seg.y1);
+      var newPos = snap(dragState.startPos + deltaIn * (dirSign || 1));
+      entity.positionIn = clampPositionToSegment(newPos, seg, entity.widthIn);
       render();
     }
   }
@@ -776,7 +1025,7 @@
   // click on empty svg area deselects
   svg.addEventListener("mousedown", function (e) {
     if (e.target === svg) {
-      selectedFurnitureId = null;
+      selected = null;
       render();
     }
   });
@@ -786,13 +1035,13 @@
     var tag = document.activeElement && document.activeElement.tagName;
     if (tag === "INPUT") return;
 
-    if (!selectedFurnitureId) return;
+    if (!selected) return;
 
     if (e.key === "r" || e.key === "R") {
-      rotateFurniture(selectedFurnitureId);
+      rotateEntity(selected.kind, selected.id);
     } else if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
-      removeFurniture(selectedFurnitureId);
+      removeEntity(selected.kind, selected.id);
     }
   });
 
@@ -808,23 +1057,12 @@
     var dFt = parseInt(depthFtInput.value, 10) || 0;
     var dIn = parseInt(depthInInput.value, 10) || 0;
 
-    var newWidthIn = Math.max(12, wFt * 12 + wIn);
-    var newDepthIn = Math.max(12, dFt * 12 + dIn);
+    room.widthIn = Math.max(12, wFt * 12 + wIn);
+    room.depthIn = Math.max(12, dFt * 12 + dIn);
 
-    room.widthIn = newWidthIn;
-    room.depthIn = newDepthIn;
-
-    // clamp furniture into new bounds
-    furniture.forEach(function (item) {
-      item.xIn = Math.max(0, Math.min(item.xIn, Math.max(0, room.widthIn - item.widthIn)));
-      item.yIn = Math.max(0, Math.min(item.yIn, Math.max(0, room.depthIn - item.depthIn)));
-    });
-    // clamp doors into new bounds
-    doors.forEach(function (door) {
-      var wallLen = (door.wall === "top" || door.wall === "bottom") ? room.widthIn : room.depthIn;
-      var half = door.widthIn / 2;
-      door.positionIn = Math.max(half, Math.min(door.positionIn, Math.max(half, wallLen - half)));
-    });
+    furniture.forEach(clampRectToRoom);
+    walls.forEach(clampRectToRoom);
+    // door/window re-clamping against (possibly moved) walls happens in render()
 
     render();
   }
@@ -835,12 +1073,15 @@
 
   // ---------- Toolbar ----------
   document.getElementById("rotate-btn").addEventListener("click", function () {
-    if (selectedFurnitureId) rotateFurniture(selectedFurnitureId);
+    if (selected) rotateEntity(selected.kind, selected.id);
   });
   document.getElementById("delete-btn").addEventListener("click", function () {
-    if (selectedFurnitureId) removeFurniture(selectedFurnitureId);
+    if (selected) removeEntity(selected.kind, selected.id);
   });
-  document.getElementById("add-door-btn").addEventListener("click", addDoor);
+  document.getElementById("add-wall-btn").addEventListener("click", addWall);
+  document.getElementById("add-swing-door-btn").addEventListener("click", function () { addDoor("swing"); });
+  document.getElementById("add-sliding-door-btn").addEventListener("click", function () { addDoor("sliding"); });
+  document.getElementById("add-window-btn").addEventListener("click", addWindow);
 
   // ---------- Catalog panel ----------
   function buildCatalog() {
@@ -866,10 +1107,13 @@
   // ---------- Legend ----------
   function buildLegend() {
     var items = [
-      { swatch: "var(--room-fill)", border: "var(--room-wall)", label: "Room / walls" },
+      { swatch: "var(--room-fill)", border: "var(--room-wall)", label: "Room boundary" },
+      { swatch: "var(--wall-fill)", border: "var(--wall-stroke)", label: "Interior wall" },
       { swatch: "var(--furniture-fill)", border: "var(--furniture-stroke)", label: "Furniture" },
       { swatch: "var(--furniture-fill)", border: "var(--furniture-selected)", label: "Selected item" },
-      { swatch: "var(--bg)", border: "var(--door-color)", label: "Door + swing" }
+      { swatch: "var(--bg)", border: "var(--door-color)", label: "Swing door" },
+      { swatch: "var(--bg)", border: "var(--door-color)", label: "Sliding door" },
+      { swatch: "var(--bg)", border: "var(--window-color)", label: "Window" }
     ];
     var container = document.getElementById("legend");
     items.forEach(function (it) {
