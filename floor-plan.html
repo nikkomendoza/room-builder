@@ -465,6 +465,18 @@
   var WALL_DEFAULT_LENGTH_IN = 48;
   var WALL_MIN_LENGTH_IN = 6;
 
+  // Center positions (in inches along a wall) for `count` items of
+  // `itemWidthIn` spread across a wall of `wallLengthIn`, with equal gaps
+  // before, between, and after them.
+  function evenlySpacedPositions(wallLengthIn, count, itemWidthIn) {
+    var gap = (wallLengthIn - count * itemWidthIn) / (count + 1);
+    var positions = [];
+    for (var i = 0; i < count; i++) {
+      positions.push(gap * (i + 1) + itemWidthIn * i + itemWidthIn / 2);
+    }
+    return positions;
+  }
+
   // ---------- State ----------
   // Overall footprint is 14' x 15.5': a 14' x 12.5' main room plus a 3'-deep
   // closet/bathroom strip across the full width at the bottom, split off by
@@ -493,6 +505,13 @@
     { id: "door-3", wallRef: "wall:wall-1", positionIn: 30, widthIn: 30, kind: "swing" }
   ];
   var windows = []; // { id, wallRef, positionIn, widthIn }
+  // 4 evenly-spaced 32" windows each on the top and right exterior walls.
+  evenlySpacedPositions(room.widthIn, 4, 32).forEach(function (pos, i) {
+    windows.push({ id: "win-top-" + (i + 1), wallRef: "room:top", positionIn: pos, widthIn: 32 });
+  });
+  evenlySpacedPositions(room.depthIn, 4, 32).forEach(function (pos, i) {
+    windows.push({ id: "win-right-" + (i + 1), wallRef: "room:right", positionIn: pos, widthIn: 32 });
+  });
 
   var nextId = 1;
   var selected = null; // { kind: 'furniture'|'wall'|'door'|'window', id }
