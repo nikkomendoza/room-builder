@@ -233,6 +233,16 @@
     border-color: var(--danger);
     color: var(--danger);
   }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .btn:disabled:hover { background: #143a5c; }
+
+  #undo-btn {
+    width: 100%;
+    margin-bottom: 16px;
+  }
 
   #toolbar, #add-toolbar {
     display: flex;
@@ -361,6 +371,8 @@
   </div>
 
   <div class="panel" id="right-panel">
+    <button class="btn" id="undo-btn" disabled>&#8630; Undo (Ctrl+Z)</button>
+
     <h2>Room Name</h2>
     <input type="text" id="room-name-input" class="text-input">
 
@@ -447,17 +459,26 @@
   // ---------- State ----------
   // Overall footprint is 14' x 15.5': a 14' x 12.5' main room plus a 3'-deep
   // closet/bathroom strip across the full width at the bottom, split off by
-  // an interior partition wall (with a door in it for access).
+  // an interior partition wall (wall-1, with door-1 in it for access).
+  // Inside that strip, a short vertical wall (wall-2) encloses a closet in
+  // the bottom-left corner; the walkway from the main entrance (door-2, on
+  // the room's bottom exterior wall) up to door-1 runs along the closet's
+  // right side, so the closet wall is on your left as you walk in.
   var room = { widthIn: 14 * 12, depthIn: 15 * 12 + 6, name: "Upstairs Bedroom" };
+  var MAIN_ROOM_DEPTH_IN = 12 * 12 + 6;
+  var CLOSET_WIDTH_IN = 60;
+  var WALKWAY_X_IN = 80; // shared x-position for door-1 and the new entrance door
 
   var furniture = [
     { id: "f0", type: "corner-pillar", label: "Corner Pillar", widthIn: 16, depthIn: 16, xIn: 0, yIn: 0, rotationDeg: 0 }
   ];
   var walls = [
-    { id: "wall-1", widthIn: 14 * 12, depthIn: WALL_THICKNESS_IN, xIn: 0, yIn: 12 * 12 + 6 - WALL_THICKNESS_IN / 2, rotationDeg: 0 }
+    { id: "wall-1", widthIn: 14 * 12, depthIn: WALL_THICKNESS_IN, xIn: 0, yIn: MAIN_ROOM_DEPTH_IN - WALL_THICKNESS_IN / 2, rotationDeg: 0 },
+    { id: "wall-2", widthIn: WALL_THICKNESS_IN, depthIn: room.depthIn - MAIN_ROOM_DEPTH_IN, xIn: CLOSET_WIDTH_IN - WALL_THICKNESS_IN / 2, yIn: MAIN_ROOM_DEPTH_IN - WALL_THICKNESS_IN / 2, rotationDeg: 0 }
   ];
   var doors = [
-    { id: "door-1", wallRef: "wall:wall-1", positionIn: 7 * 12, widthIn: 30, kind: "swing" }
+    { id: "door-1", wallRef: "wall:wall-1", positionIn: WALKWAY_X_IN, widthIn: 30, kind: "swing" },
+    { id: "door-2", wallRef: "room:bottom", positionIn: WALKWAY_X_IN, widthIn: 30, kind: "swing" }
   ];
   var windows = []; // { id, wallRef, positionIn, widthIn }
 
@@ -902,8 +923,48 @@
     return '<div class="info-line"><span>' + label + '</span><span>' + value + "</span></div>";
   }
 
+  // ---------- Undo ----------
+  // A snapshot is pushed right before every mutation (add/remove/rotate,
+  // the start of a drag gesture, or a room-size change) so Undo restores
+  // the state as it was just before that action. Snapshots are plain JSON
+  // clones since furniture/walls/doors/windows are all plain data.
+  var undoStack = [];
+  var MAX_UNDO = 50;
+  var undoBtn = document.getElementById("undo-btn");
+
+  function pushHistory() {
+    undoStack.push(JSON.stringify({
+      room: { widthIn: room.widthIn, depthIn: room.depthIn },
+      furniture: furniture, walls: walls, doors: doors, windows: windows
+    }));
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+    updateUndoButton();
+  }
+
+  function updateUndoButton() {
+    undoBtn.disabled = undoStack.length === 0;
+  }
+
+  function undo() {
+    if (!undoStack.length) return;
+    var snap = JSON.parse(undoStack.pop());
+    room.widthIn = snap.room.widthIn;
+    room.depthIn = snap.room.depthIn;
+    furniture = snap.furniture;
+    walls = snap.walls;
+    doors = snap.doors;
+    windows = snap.windows;
+    selected = null;
+    syncRoomSizeInputs();
+    render();
+    updateUndoButton();
+  }
+
+  undoBtn.addEventListener("click", undo);
+
   // ---------- Add actions ----------
   function addFurniture(catalogEntry) {
+    pushHistory();
     var widthIn = ftToIn(catalogEntry.widthFt);
     var depthIn = ftToIn(catalogEntry.depthFt);
     var item = {
@@ -923,6 +984,7 @@
   }
 
   function addWall() {
+    pushHistory();
     var wall = {
       id: "w" + (nextId++),
       widthIn: Math.min(WALL_DEFAULT_LENGTH_IN, room.widthIn),
@@ -945,6 +1007,7 @@
   }
 
   function addDoor(kind) {
+    pushHistory();
     var wallRef = targetWallRef();
     var seg = getWallSegment(wallRef);
     var widthIn = 30;
@@ -961,6 +1024,7 @@
   }
 
   function addWindow() {
+    pushHistory();
     var wallRef = targetWallRef();
     var seg = getWallSegment(wallRef);
     var widthIn = 36;
@@ -982,6 +1046,7 @@
   }
 
   function removeEntity(kind, id) {
+    pushHistory();
     if (kind === "furniture") {
       furniture = furniture.filter(function (f) { return f.id !== id; });
     } else if (kind === "wall") {
@@ -1004,6 +1069,7 @@
     else if (kind === "wall") item = walls.find(function (w) { return w.id === id; });
     else return; // doors/windows follow their wall's orientation, no independent rotation
     if (!item) return;
+    pushHistory();
     rotateRect(item);
     render();
   }
@@ -1018,6 +1084,7 @@
       ? furniture.find(function (f) { return f.id === id; })
       : walls.find(function (w) { return w.id === id; });
     if (!item) return;
+    pushHistory();
     var pt = getSvgPoint(e);
     dragState = {
       mode: "movable",
@@ -1037,6 +1104,7 @@
       ? doors.find(function (d) { return d.id === id; })
       : windows.find(function (w) { return w.id === id; });
     if (!item) return;
+    pushHistory();
     var pt = getSvgPoint(e);
     dragState = {
       mode: "wall-slide",
@@ -1116,6 +1184,12 @@
     var tag = document.activeElement && document.activeElement.tagName;
     if (tag === "INPUT") return;
 
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+      e.preventDefault();
+      undo();
+      return;
+    }
+
     if (!selected) return;
 
     if (e.key === "r" || e.key === "R") {
@@ -1149,14 +1223,25 @@
   var depthFtInput = document.getElementById("depth-ft");
   var depthInInput = document.getElementById("depth-in");
 
+  function syncRoomSizeInputs() {
+    widthFtInput.value = Math.floor(room.widthIn / 12);
+    widthInInput.value = room.widthIn % 12;
+    depthFtInput.value = Math.floor(room.depthIn / 12);
+    depthInInput.value = room.depthIn % 12;
+  }
+
   function readRoomInputs() {
     var wFt = parseInt(widthFtInput.value, 10) || 0;
     var wIn = parseInt(widthInInput.value, 10) || 0;
     var dFt = parseInt(depthFtInput.value, 10) || 0;
     var dIn = parseInt(depthInInput.value, 10) || 0;
 
-    room.widthIn = Math.max(12, wFt * 12 + wIn);
-    room.depthIn = Math.max(12, dFt * 12 + dIn);
+    var newWidthIn = Math.max(12, wFt * 12 + wIn);
+    var newDepthIn = Math.max(12, dFt * 12 + dIn);
+    if (newWidthIn === room.widthIn && newDepthIn === room.depthIn) return;
+    pushHistory();
+    room.widthIn = newWidthIn;
+    room.depthIn = newDepthIn;
 
     furniture.forEach(clampRectToRoom);
     walls.forEach(clampRectToRoom);
