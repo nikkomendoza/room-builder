@@ -504,11 +504,11 @@
     { id: "door-2", wallRef: "room:bottom", positionIn: WALKWAY_X_IN, widthIn: 30, kind: "swing" },
     { id: "door-3", wallRef: "wall:wall-1", positionIn: 30, widthIn: 30, kind: "swing" }
   ];
-  var windows = []; // { id, wallRef, positionIn, widthIn }
-  // 4 evenly-spaced 32" windows each on the top and right exterior walls.
-  evenlySpacedPositions(room.widthIn, 4, 32).forEach(function (pos, i) {
-    windows.push({ id: "win-top-" + (i + 1), wallRef: "room:top", positionIn: pos, widthIn: 32 });
-  });
+  var windows = [
+    // one wide window centered on the top wall
+    { id: "win-top-1", wallRef: "room:top", positionIn: room.widthIn / 2, widthIn: 108 }
+  ];
+  // 4 evenly-spaced 32" windows on the right exterior wall.
   evenlySpacedPositions(room.depthIn, 4, 32).forEach(function (pos, i) {
     windows.push({ id: "win-right-" + (i + 1), wallRef: "room:right", positionIn: pos, widthIn: 32 });
   });
