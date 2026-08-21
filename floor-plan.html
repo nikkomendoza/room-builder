@@ -479,30 +479,34 @@
 
   // ---------- State ----------
   // Overall footprint is 14' x 15.5': a 14' x 12.5' main room plus a 3'-deep
-  // closet/bathroom strip across the full width at the bottom, split off by
-  // an interior partition wall (wall-1). That strip has three zones left to
-  // right: an enclosed bathroom (wall-2, its own door-3 into the main room),
-  // an open walkway (door-1/door-2, aligned, running from the main room down
-  // to the entrance at the very bottom), and an enclosed closet (wall-3).
+  // strip across the bottom, split off by a partition wall (wall-1) that
+  // does NOT run the full width - it stops short, forming a corner with
+  // wall-3, so the bottom-right corner of the strip stays open to the main
+  // room above. Left to right along the strip: an enclosed closet (wall-2,
+  // its own sliding door-3 into the main room), an open walkway (door-1/
+  // door-2, aligned, running from the main room down to the entrance at the
+  // very bottom), then wall-3 and the open corner beyond it, reached by its
+  // own exterior door (door-4) at the outermost bottom-right corner.
   var room = { widthIn: 14 * 12, depthIn: 15 * 12 + 6, name: "Upstairs Bedroom" };
   var MAIN_ROOM_DEPTH_IN = 12 * 12 + 6;
   var STRIP_DEPTH_IN = room.depthIn - MAIN_ROOM_DEPTH_IN;
-  var BATHROOM_WIDTH_IN = 60;
-  var CLOSET_START_IN = 138;
+  var CLOSET_WIDTH_IN = 60;
+  var CLOSET_START_IN = 138; // where wall-1 ends and wall-3 begins
   var WALKWAY_X_IN = 80; // shared x-position for door-1 and the entrance door
 
   var furniture = [
     { id: "f0", type: "corner-pillar", label: "Corner Pillar", widthIn: 16, depthIn: 16, xIn: 0, yIn: 0, rotationDeg: 0 }
   ];
   var walls = [
-    { id: "wall-1", widthIn: 14 * 12, depthIn: WALL_THICKNESS_IN, xIn: 0, yIn: MAIN_ROOM_DEPTH_IN - WALL_THICKNESS_IN / 2, rotationDeg: 0 },
-    { id: "wall-2", widthIn: WALL_THICKNESS_IN, depthIn: STRIP_DEPTH_IN, xIn: BATHROOM_WIDTH_IN - WALL_THICKNESS_IN / 2, yIn: MAIN_ROOM_DEPTH_IN - WALL_THICKNESS_IN / 2, rotationDeg: 0 },
+    { id: "wall-1", widthIn: CLOSET_START_IN, depthIn: WALL_THICKNESS_IN, xIn: 0, yIn: MAIN_ROOM_DEPTH_IN - WALL_THICKNESS_IN / 2, rotationDeg: 0 },
+    { id: "wall-2", widthIn: WALL_THICKNESS_IN, depthIn: STRIP_DEPTH_IN, xIn: CLOSET_WIDTH_IN - WALL_THICKNESS_IN / 2, yIn: MAIN_ROOM_DEPTH_IN - WALL_THICKNESS_IN / 2, rotationDeg: 0 },
     { id: "wall-3", widthIn: WALL_THICKNESS_IN, depthIn: STRIP_DEPTH_IN, xIn: CLOSET_START_IN - WALL_THICKNESS_IN / 2, yIn: MAIN_ROOM_DEPTH_IN - WALL_THICKNESS_IN / 2, rotationDeg: 0 }
   ];
   var doors = [
     { id: "door-1", wallRef: "wall:wall-1", positionIn: WALKWAY_X_IN, widthIn: 30, kind: "swing" },
     { id: "door-2", wallRef: "room:bottom", positionIn: WALKWAY_X_IN, widthIn: 30, kind: "swing" },
-    { id: "door-3", wallRef: "wall:wall-1", positionIn: 30, widthIn: 30, kind: "swing" }
+    { id: "door-3", wallRef: "wall:wall-1", positionIn: 30, widthIn: 30, kind: "sliding" },
+    { id: "door-4", wallRef: "room:bottom", positionIn: room.widthIn - 15, widthIn: 30, kind: "swing" }
   ];
   var windows = [
     // one wide window centered on the top wall
