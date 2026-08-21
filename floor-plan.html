@@ -89,6 +89,31 @@
   .catalog-item .name { color: var(--text); }
   .catalog-item .dims { color: var(--text-dim); font-size: 11px; white-space: nowrap; margin-left: 8px; }
 
+  #custom-item-form {
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 14px;
+    background: rgba(255,255,255,0.02);
+  }
+  #custom-item-form #custom-name {
+    width: 100%;
+    background: #081221;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 5px 7px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
+  #custom-item-form #custom-name:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  #custom-item-form .field-row { margin-bottom: 6px; }
+  #custom-item-form .field-row label { width: 16px; }
+  #custom-add-btn { width: 100%; margin-top: 2px; }
+
   #center {
     display: flex;
     flex-direction: column;
@@ -259,13 +284,13 @@
     stroke-width: 22;
     cursor: ew-resize;
   }
-  .door-opening { stroke: var(--bg); stroke-width: 3; }
+  .door-opening { stroke: var(--bg); }
   .door-swing { fill: none; stroke: var(--door-color); stroke-width: 1; stroke-dasharray: 3,2; }
   .door-panel { stroke: var(--door-color); stroke-width: 2; }
   .door-panel.selected, .door-opening.selected + .door-panel { stroke: var(--furniture-selected); }
   .door-slide-panel { stroke: var(--door-color); stroke-width: 2.5; }
   .door-slide-panel.selected { stroke: var(--furniture-selected); }
-  .window-opening { stroke: var(--bg); stroke-width: 3; }
+  .window-opening { stroke: var(--bg); }
   .window-line { stroke: var(--window-color); stroke-width: 2; }
   .window-line.selected { stroke: var(--furniture-selected); }
 
@@ -285,6 +310,24 @@
 <div id="app">
   <div class="panel" id="left-panel">
     <h1>Furniture</h1>
+    <div id="custom-item-form">
+      <input type="text" id="custom-name" placeholder="Item name">
+      <div class="field-row">
+        <label>W</label>
+        <input type="number" id="custom-w-ft" min="0" step="1" value="1">
+        <span class="unit">ft</span>
+        <input type="number" id="custom-w-in" min="0" max="11" step="1" value="0">
+        <span class="unit">in</span>
+      </div>
+      <div class="field-row">
+        <label>D</label>
+        <input type="number" id="custom-d-ft" min="0" step="1" value="1">
+        <span class="unit">ft</span>
+        <input type="number" id="custom-d-in" min="0" max="11" step="1" value="0">
+        <span class="unit">in</span>
+      </div>
+      <button class="btn" id="custom-add-btn">+ Add Custom Item</button>
+    </div>
     <div id="catalog"></div>
   </div>
 
@@ -305,7 +348,7 @@
     </div>
     <div class="field-row">
       <label>Depth</label>
-      <input type="number" id="depth-ft" min="1" step="1" value="12">
+      <input type="number" id="depth-ft" min="1" step="1" value="15">
       <span class="unit">ft</span>
       <input type="number" id="depth-in" min="0" max="11" step="1" value="6">
       <span class="unit">in</span>
@@ -330,7 +373,7 @@
 
     <h2>Instructions</h2>
     <div class="instructions">
-      Click a catalog item to add furniture.<br>
+      Click a catalog item to add furniture, or define your own name/width/depth above the catalog and click Add Custom Item.<br>
       Click any item (furniture, wall, door, window) to select it.<br>
       Drag a selected furniture or wall to move it.<br>
       Press <kbd>R</kbd> or the rotate button to turn furniture/walls 90&deg;.<br>
@@ -361,40 +404,36 @@
     { type: "nightstand", label: "Nightstand", widthFt: 1.5, depthFt: 1.5 },
     { type: "nightstand-small", label: "Nightstand (small)", widthFt: 1, depthFt: 1.25 },
     { type: "sofa", label: "Sofa", widthFt: 7, depthFt: 3 },
-    { type: "loveseat", label: "Loveseat", widthFt: 5, depthFt: 3 },
-    { type: "armchair", label: "Armchair", widthFt: 2.5, depthFt: 2.5 },
-    { type: "coffee-table", label: "Coffee Table", widthFt: 4, depthFt: 2 },
-    { type: "dining-table", label: "Dining Table", widthFt: 4, depthFt: 3 },
-    { type: "desk", label: "Desk", widthFt: 4, depthFt: 2 },
-    { type: "bookshelf", label: "Bookshelf", widthFt: 3, depthFt: 1 },
-    { type: "wardrobe", label: "Wardrobe", widthFt: 4, depthFt: 2 },
-    { type: "tv-stand", label: "TV Stand", widthFt: 5, depthFt: 1.5 },
-    { type: "office-chair", label: "Office Chair", widthFt: 2, depthFt: 2 },
-    { type: "dining-chair", label: "Dining Chair", widthFt: 1.5, depthFt: 1.5 },
     { type: "plant", label: "Plant", widthFt: 1, depthFt: 1 },
     { type: "lamp", label: "Lamp", widthFt: 1, depthFt: 1 }
   ];
 
   function ftToIn(ft) { return Math.round(ft * 12); }
 
-  // ---------- State ----------
-  var room = { widthIn: 14 * 12, depthIn: 12 * 12 + 6 };
-
-  var furniture = []; // furnitureItem[]
-  var walls = [];      // interior partition walls: { id, widthIn, depthIn, xIn, yIn, rotationDeg }
-  var doors = [
-    { id: "door-1", wallRef: "room:bottom", positionIn: 24, widthIn: 30, kind: "swing" }
-  ];
-  var windows = []; // { id, wallRef, positionIn, widthIn }
-
-  var nextId = 1;
-  var selected = null; // { kind: 'furniture'|'wall'|'door'|'window', id }
-
+  // ---------- Constants ----------
   var SNAP_IN = 1; // grid snap increment in inches (1")
   var PX_PER_IN = 4; // scale: pixels per inch (=> 48px per foot)
   var MARGIN = { top: 40, left: 40, right: 20, bottom: 60 };
   var WALL_THICKNESS_IN = 4;
   var WALL_DEFAULT_LENGTH_IN = 48;
+
+  // ---------- State ----------
+  // Overall footprint is 14' x 15.5': a 14' x 12.5' main room plus a 3'-deep
+  // closet/bathroom strip across the full width at the bottom, split off by
+  // an interior partition wall (with a door in it for access).
+  var room = { widthIn: 14 * 12, depthIn: 15 * 12 + 6 };
+
+  var furniture = []; // furnitureItem[]
+  var walls = [
+    { id: "wall-1", widthIn: 14 * 12, depthIn: WALL_THICKNESS_IN, xIn: 0, yIn: 12 * 12 + 6 - WALL_THICKNESS_IN / 2, rotationDeg: 0 }
+  ];
+  var doors = [
+    { id: "door-1", wallRef: "wall:wall-1", positionIn: 7 * 12, widthIn: 30, kind: "swing" }
+  ];
+  var windows = []; // { id, wallRef, positionIn, widthIn }
+
+  var nextId = 1;
+  var selected = null; // { kind: 'furniture'|'wall'|'door'|'window', id }
 
   // ---------- SVG helpers ----------
   var SVG_NS = "http://www.w3.org/2000/svg";
@@ -698,6 +737,19 @@
     return Math.max(lo, Math.min(positionIn, hi));
   }
 
+  // Width (in px) of the "opening" line that erases the wall behind a door
+  // or window. The room boundary is just a thin outline stroke, so a thin
+  // erase line is enough - but an interior wall is a solid filled bar, so
+  // the opening has to match its actual thickness or the wall shows through
+  // on either side of a thin notch.
+  function wallOpeningStrokeWidth(wallRef) {
+    if (wallRef && wallRef.indexOf("wall:") === 0) {
+      var wall = walls.find(function (w) { return w.id === wallRef.slice(5); });
+      if (wall) return Math.min(wall.widthIn, wall.depthIn) * PX_PER_IN + 2;
+    }
+    return 3;
+  }
+
   // Re-clamp every door/window's position against its current wall segment,
   // and drop any whose wall no longer exists. Called at the top of every
   // render so wall moves/rotates/resizes/deletes and room resizes always
@@ -730,8 +782,8 @@
 
     // wide invisible hit-path for easier click/drag targeting
     g.appendChild(el("line", { class: "door-hit", x1: x1, y1: y1, x2: x2, y2: y2 }));
-    // opening: erase wall segment
-    g.appendChild(el("line", { class: "door-opening", x1: x1, y1: y1, x2: x2, y2: y2 }));
+    // opening: erase wall segment (thick enough to cut through a solid interior wall)
+    g.appendChild(el("line", { class: "door-opening", x1: x1, y1: y1, x2: x2, y2: y2, "stroke-width": wallOpeningStrokeWidth(door.wallRef) }));
 
     if (door.kind === "sliding") {
       var n = inwardNormal(seg);
@@ -784,7 +836,7 @@
     var g = el("g", { class: "window-group", "data-id": win.id });
 
     g.appendChild(el("line", { class: "window-hit", x1: x1, y1: y1, x2: x2, y2: y2 }));
-    g.appendChild(el("line", { class: "window-opening", x1: x1, y1: y1, x2: x2, y2: y2 }));
+    g.appendChild(el("line", { class: "window-opening", x1: x1, y1: y1, x2: x2, y2: y2, "stroke-width": wallOpeningStrokeWidth(win.wallRef) }));
 
     var n = inwardNormal(seg);
     var offsetPx = 2.5 * PX_PER_IN;
@@ -1083,9 +1135,36 @@
   document.getElementById("add-sliding-door-btn").addEventListener("click", function () { addDoor("sliding"); });
   document.getElementById("add-window-btn").addEventListener("click", addWindow);
 
+  // ---------- Custom furniture form ----------
+  document.getElementById("custom-add-btn").addEventListener("click", function () {
+    var nameInput = document.getElementById("custom-name");
+    var name = nameInput.value.trim();
+    var wFt = parseInt(document.getElementById("custom-w-ft").value, 10) || 0;
+    var wIn = parseInt(document.getElementById("custom-w-in").value, 10) || 0;
+    var dFt = parseInt(document.getElementById("custom-d-ft").value, 10) || 0;
+    var dIn = parseInt(document.getElementById("custom-d-in").value, 10) || 0;
+    var widthIn = wFt * 12 + wIn;
+    var depthIn = dFt * 12 + dIn;
+
+    if (!name) { alert("Enter a name for the item."); return; }
+    if (widthIn <= 0 || depthIn <= 0) { alert("Enter a width and depth greater than zero."); return; }
+
+    var entry = {
+      type: "custom-" + (nextId++),
+      label: name,
+      widthFt: widthIn / 12,
+      depthFt: depthIn / 12
+    };
+    CATALOG.push(entry);
+    buildCatalog();
+
+    nameInput.value = "";
+  });
+
   // ---------- Catalog panel ----------
   function buildCatalog() {
     var container = document.getElementById("catalog");
+    container.innerHTML = "";
     CATALOG.forEach(function (entry) {
       var div = document.createElement("div");
       div.className = "catalog-item";
