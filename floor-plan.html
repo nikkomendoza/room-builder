@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Floor Plan Designer</title>
+<style>
+  :root {
+    --bg: #0a1628;
+    --panel: #0f1f38;
+    --panel-border: #1e3a5f;
+    --grid-line: #16324f;
+    --grid-line-major: #1f4568;
+    --text: #cfe8ff;
+    --text-dim: #7fa8cc;
+    --accent: #4fc3f7;
+    --accent-bright: #7fdbff;
+    --room-fill: #0d1e33;
+    --room-wall: #7fdbff;
+    --furniture-fill: #143a5c;
+    --furniture-stroke: #4fc3f7;
+    --furniture-selected: #ffb74d;
+    --door-color: #ffcc80;
+    --danger: #ff6b6b;
+    --catalog-hover: #163a5e;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  #app {
+    display: grid;
+    grid-template-columns: 240px 1fr 280px;
+    height: 100vh;
+    overflow: hidden;
+  }
+  .panel {
+    background: var(--panel);
+    border-right: 1px solid var(--panel-border);
+    overflow-y: auto;
+    padding: 14px;
+  }
+  #right-panel {
+    border-right: none;
+    border-left: 1px solid var(--panel-border);
+  }
+  h1 {
+    font-size: 15px;
+    margin: 0 0 12px 0;
+    color: var(--accent-bright);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  h2 {
+    font-size: 12px;
+    margin: 18px 0 8px 0;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--panel-border);
+    padding-bottom: 4px;
+  }
+  h2:first-of-type { margin-top: 0; }
+  .catalog-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  .catalog-item:hover {
+    background: var(--catalog-hover);
+    border-color: var(--accent);
+  }
+  .catalog-item .name { color: var(--text); }
+  .catalog-item .dims { color: var(--text-dim); font-size: 11px; white-space: nowrap; margin-left: 8px; }
+
+  #center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+    padding: 20px;
+    position: relative;
+  }
+  #canvas-wrap {
+    position: relative;
+  }
+  svg#room-svg {
+    background: var(--bg);
+    display: block;
+    user-select: none;
+  }
+
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .field-row label {
+    width: 52px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .field-row input {
+    width: 48px;
+    background: #081221;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .field-row input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .field-row .unit { color: var(--text-dim); font-size: 11px; }
+
+  .info-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    padding: 3px 0;
+    color: var(--text);
+  }
+  .info-line span:first-child { color: var(--text-dim); }
+
+  .instructions {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .instructions kbd {
+    background: #143a5c;
+    border: 1px solid var(--panel-border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10.5px;
+    color: var(--accent-bright);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    margin-bottom: 6px;
+    color: var(--text-dim);
+  }
+  .legend-swatch {
+    width: 16px;
+    height: 12px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  .btn {
+    background: #143a5c;
+    border: 1px solid var(--accent);
+    color: var(--accent-bright);
+    padding: 6px 10px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .btn:hover { background: #1a4a72; }
+  .btn.danger {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  #toolbar {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .furniture-rect {
+    fill: var(--furniture-fill);
+    stroke: var(--furniture-stroke);
+    stroke-width: 1.5;
+    cursor: grab;
+  }
+  .furniture-rect.selected {
+    stroke: var(--furniture-selected);
+    stroke-width: 2.5;
+  }
+  .furniture-label {
+    fill: var(--text);
+    font-size: 10px;
+    pointer-events: none;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+  .furniture-dims {
+    fill: var(--text-dim);
+    font-size: 8.5px;
+    pointer-events: none;
+    text-anchor: middle;
+    dominant-baseline: middle;
+  }
+  .remove-btn circle {
+    fill: var(--danger);
+    cursor: pointer;
+  }
+  .remove-btn text {
+    fill: #fff;
+    font-size: 11px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+    font-weight: bold;
+  }
+  .rotate-btn circle {
+    fill: var(--accent);
+    cursor: pointer;
+  }
+  .rotate-btn text {
+    fill: #06202f;
+    font-size: 10px;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+    font-weight: bold;
+  }
+  .door-group { cursor: ew-resize; }
+  .door-opening { stroke: var(--bg); stroke-width: 3; }
+  .door-swing { fill: none; stroke: var(--door-color); stroke-width: 1; stroke-dasharray: 3,2; }
+  .door-panel { stroke: var(--door-color); stroke-width: 2; }
+
+  .ruler-text {
+    fill: var(--text-dim);
+    font-size: 9px;
+  }
+  .ruler-tick {
+    stroke: var(--grid-line-major);
+    stroke-width: 1;
+  }
+  .scale-bar-line { stroke: var(--accent-bright); stroke-width: 2; }
+  .scale-bar-text { fill: var(--text-dim); font-size: 10px; text-anchor: middle; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="panel" id="left-panel">
+    <h1>Furniture</h1>
+    <div id="catalog"></div>
+  </div>
+
+  <div id="center">
+    <div id="canvas-wrap">
+      <svg id="room-svg"></svg>
+    </div>
+  </div>
+
+  <div class="panel" id="right-panel">
+    <h2>Room Size</h2>
+    <div class="field-row">
+      <label>Width</label>
+      <input type="number" id="width-ft" min="1" step="1" value="14">
+      <span class="unit">ft</span>
+      <input type="number" id="width-in" min="0" max="11" step="1" value="0">
+      <span class="unit">in</span>
+    </div>
+    <div class="field-row">
+      <label>Depth</label>
+      <input type="number" id="depth-ft" min="1" step="1" value="12">
+      <span class="unit">ft</span>
+      <input type="number" id="depth-in" min="0" max="11" step="1" value="6">
+      <span class="unit">in</span>
+    </div>
+
+    <h2>Room Info</h2>
+    <div id="room-info"></div>
+
+    <h2>Actions</h2>
+    <div id="toolbar">
+      <button class="btn" id="rotate-btn">Rotate (R)</button>
+      <button class="btn danger" id="delete-btn">Delete</button>
+    </div>
+    <div id="toolbar2" style="margin-top:8px;">
+      <button class="btn" id="add-door-btn">+ Add Door</button>
+    </div>
+
+    <h2>Instructions</h2>
+    <div class="instructions">
+      Click a catalog item to add it to the room.<br>
+      Click furniture to select it.<br>
+      Drag selected furniture to move it.<br>
+      Press <kbd>R</kbd> or the rotate button to turn it 90&deg;.<br>
+      Press <kbd>Delete</kbd>/<kbd>Backspace</kbd> or the &times; button to remove it.<br>
+      Drag a door along its wall to slide it.<br>
+      Edit Width/Depth to resize the room (1&Prime; steps).
+    </div>
+
+    <h2>Legend</h2>
+    <div id="legend"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Catalog ----------
+  var CATALOG = [
+    { type: "king-bed", label: "King Bed", widthFt: 7.42, depthFt: 7.17 },
+    { type: "queen-bed", label: "Queen Bed", widthFt: 5, depthFt: 6.67 },
+    { type: "twin-bed", label: "Twin Bed", widthFt: 3.17, depthFt: 6.25 },
+    { type: "dresser", label: "Dresser", widthFt: 4.59, depthFt: 1.57 },
+    { type: "open-closet", label: "Open Closet", widthFt: 5.74, depthFt: 1.67 },
+    { type: "corner-pillar", label: "Corner Pillar", widthFt: 1.33, depthFt: 1.33 },
+    { type: "nightstand", label: "Nightstand", widthFt: 1.5, depthFt: 1.5 },
+    { type: "nightstand-small", label: "Nightstand (small)", widthFt: 1, depthFt: 1.25 },
+    { type: "sofa", label: "Sofa", widthFt: 7, depthFt: 3 },
+    { type: "loveseat", label: "Loveseat", widthFt: 5, depthFt: 3 },
+    { type: "armchair", label: "Armchair", widthFt: 2.5, depthFt: 2.5 },
+    { type: "coffee-table", label: "Coffee Table", widthFt: 4, depthFt: 2 },
+    { type: "dining-table", label: "Dining Table", widthFt: 4, depthFt: 3 },
+    { type: "desk", label: "Desk", widthFt: 4, depthFt: 2 },
+    { type: "bookshelf", label: "Bookshelf", widthFt: 3, depthFt: 1 },
+    { type: "wardrobe", label: "Wardrobe", widthFt: 4, depthFt: 2 },
+    { type: "tv-stand", label: "TV Stand", widthFt: 5, depthFt: 1.5 },
+    { type: "office-chair", label: "Office Chair", widthFt: 2, depthFt: 2 },
+    { type: "dining-chair", label: "Dining Chair", widthFt: 1.5, depthFt: 1.5 },
+    { type: "plant", label: "Plant", widthFt: 1, depthFt: 1 },
+    { type: "lamp", label: "Lamp", widthFt: 1, depthFt: 1 }
+  ];
+
+  function ftToIn(ft) { return Math.round(ft * 12); }
+
+  // ---------- State ----------
+  var room = { widthIn: 14 * 12, depthIn: 12 * 12 + 6 };
+
+  var furniture = []; // furnitureItem[]
+  var doors = [
+    { id: "door-1", wall: "bottom", positionIn: 24, widthIn: 30 }
+  ];
+
+  var nextId = 1;
+  var selectedFurnitureId = null;
+
+  var SNAP_IN = 1; // grid snap increment in inches (1")
+  var PX_PER_IN = 4; // scale: pixels per inch (=> 48px per foot)
+  var MARGIN = { top: 40, left: 40, right: 20, bottom: 60 };
+
+  // ---------- SVG helpers ----------
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) {
+    var e = document.createElementNS(SVG_NS, tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]);
+      }
+    }
+    return e;
+  }
+
+  var svg = document.getElementById("room-svg");
+
+  function roomOriginPx() {
+    return { x: MARGIN.left, y: MARGIN.top };
+  }
+
+  function updateSvgSize() {
+    var w = room.widthIn * PX_PER_IN + MARGIN.left + MARGIN.right;
+    var h = room.depthIn * PX_PER_IN + MARGIN.top + MARGIN.bottom;
+    svg.setAttribute("width", w);
+    svg.setAttribute("height", h);
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+  }
+
+  // ---------- Rendering ----------
+  function render() {
+    updateSvgSize();
+    svg.innerHTML = "";
+
+    renderGrid();
+    renderRoomOutline();
+    renderRulers();
+    renderScaleBar();
+    doors.forEach(renderDoor);
+    furniture.forEach(renderFurniture);
+
+    renderRoomInfo();
+  }
+
+  function renderGrid() {
+    var origin = roomOriginPx();
+    var g = el("g", { class: "grid" });
+    // vertical lines every 12" (1ft), major every 5ft
+    for (var xIn = 0; xIn <= room.widthIn; xIn += 12) {
+      var x = origin.x + xIn * PX_PER_IN;
+      var isMajor = (xIn / 12) % 5 === 0;
+      g.appendChild(el("line", {
+        x1: x, y1: origin.y, x2: x, y2: origin.y + room.depthIn * PX_PER_IN,
+        stroke: isMajor ? "var(--grid-line-major)" : "var(--grid-line)",
+        "stroke-width": isMajor ? 1 : 0.5
+      }));
+    }
+    for (var yIn = 0; yIn <= room.depthIn; yIn += 12) {
+      var y = origin.y + yIn * PX_PER_IN;
+      var isMajorY = (yIn / 12) % 5 === 0;
+      g.appendChild(el("line", {
+        x1: origin.x, y1: y, x2: origin.x + room.widthIn * PX_PER_IN, y2: y,
+        stroke: isMajorY ? "var(--grid-line-major)" : "var(--grid-line)",
+        "stroke-width": isMajorY ? 1 : 0.5
+      }));
+    }
+    svg.appendChild(g);
+  }
+
+  function renderRoomOutline() {
+    var origin = roomOriginPx();
+    var rect = el("rect", {
+      x: origin.x, y: origin.y,
+      width: room.widthIn * PX_PER_IN, height: room.depthIn * PX_PER_IN,
+      fill: "var(--room-fill)", stroke: "var(--room-wall)", "stroke-width": 3
+    });
+    svg.appendChild(rect);
+  }
+
+  function fmtFtIn(totalIn) {
+    var ft = Math.floor(totalIn / 12);
+    var inch = Math.round(totalIn - ft * 12);
+    if (inch === 12) { ft += 1; inch = 0; }
+    return ft + "'-" + inch + '"';
+  }
+
+  function renderRulers() {
+    var origin = roomOriginPx();
+    var g = el("g", { class: "rulers" });
+    // top ruler (width), ticks every foot, labels every 2ft
+    for (var xIn = 0; xIn <= room.widthIn; xIn += 12) {
+      var x = origin.x + xIn * PX_PER_IN;
+      g.appendChild(el("line", { class: "ruler-tick", x1: x, y1: origin.y - 8, x2: x, y2: origin.y }));
+      if ((xIn / 12) % 2 === 0) {
+        var t = el("text", { class: "ruler-text", x: x, y: origin.y - 12, "text-anchor": "middle" });
+        t.textContent = (xIn / 12) + "'";
+        g.appendChild(t);
+      }
+    }
+    // left ruler (depth)
+    for (var yIn = 0; yIn <= room.depthIn; yIn += 12) {
+      var y = origin.y + yIn * PX_PER_IN;
+      g.appendChild(el("line", { class: "ruler-tick", x1: origin.x - 8, y1: y, x2: origin.x, y2: y }));
+      if ((yIn / 12) % 2 === 0) {
+        var t2 = el("text", { class: "ruler-text", x: origin.x - 12, y: y + 3, "text-anchor": "end" });
+        t2.textContent = (yIn / 12) + "'";
+        g.appendChild(t2);
+      }
+    }
+    svg.appendChild(g);
+  }
+
+  function renderScaleBar() {
+    var origin = roomOriginPx();
+    var barY = origin.y + room.depthIn * PX_PER_IN + 35;
+    var barX = origin.x;
+    var lenFt = 5;
+    var lenPx = lenFt * 12 * PX_PER_IN;
+    var g = el("g", { class: "scale-bar" });
+    g.appendChild(el("line", { class: "scale-bar-line", x1: barX, y1: barY, x2: barX + lenPx, y2: barY }));
+    [0, 1].forEach(function (i) {
+      g.appendChild(el("line", { class: "scale-bar-line", x1: barX + i * lenPx, y1: barY - 5, x2: barX + i * lenPx, y2: barY + 5 }));
+    });
+    var t = el("text", { class: "scale-bar-text", x: barX + lenPx / 2, y: barY + 18 });
+    t.textContent = lenFt + " ft";
+    g.appendChild(t);
+    svg.appendChild(g);
+  }
+
+  // ---------- Furniture rendering ----------
+  function renderFurniture(item) {
+    var origin = roomOriginPx();
+    var x = origin.x + item.xIn * PX_PER_IN;
+    var y = origin.y + item.yIn * PX_PER_IN;
+    var w = item.widthIn * PX_PER_IN;
+    var d = item.depthIn * PX_PER_IN;
+    var cx = x + w / 2;
+    var cy = y + d / 2;
+
+    var g = el("g", {
+      class: "furniture-item",
+      "data-id": item.id,
+      transform: "rotate(" + item.rotationDeg + " " + cx + " " + cy + ")"
+    });
+
+    var rect = el("rect", {
+      x: x, y: y, width: w, height: d,
+      class: "furniture-rect" + (item.id === selectedFurnitureId ? " selected" : ""),
+      rx: 3
+    });
+    g.appendChild(rect);
+
+    var label = el("text", { class: "furniture-label", x: cx, y: cy - 5 });
+    label.textContent = item.label;
+    g.appendChild(label);
+
+    var dims = el("text", { class: "furniture-dims", x: cx, y: cy + 8 });
+    dims.textContent = fmtFtIn(item.widthIn) + " x " + fmtFtIn(item.depthIn);
+    g.appendChild(dims);
+
+    if (item.id === selectedFurnitureId) {
+      // rotate handle (top-right-ish, but keep un-rotated visually by placing outside the rotate transform)
+      var removeBtn = el("g", { class: "remove-btn", transform: "rotate(" + (-item.rotationDeg) + " " + (x + w) + " " + y + ")" });
+      removeBtn.appendChild(el("circle", { cx: x + w, cy: y, r: 8 }));
+      var xText = el("text", { x: x + w, y: y + 1 });
+      xText.textContent = "×";
+      removeBtn.appendChild(xText);
+      removeBtn.addEventListener("mousedown", function (e) {
+        e.stopPropagation();
+      });
+      removeBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        removeFurniture(item.id);
+      });
+      g.appendChild(removeBtn);
+
+      var rotateBtn = el("g", { class: "rotate-btn", transform: "rotate(" + (-item.rotationDeg) + " " + x + " " + y + ")" });
+      rotateBtn.appendChild(el("circle", { cx: x, cy: y, r: 8 }));
+      var rText = el("text", { x: x, y: y + 1 });
+      rText.textContent = "R";
+      rotateBtn.appendChild(rText);
+      rotateBtn.addEventListener("mousedown", function (e) {
+        e.stopPropagation();
+      });
+      rotateBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        rotateFurniture(item.id);
+      });
+      g.appendChild(rotateBtn);
+    }
+
+    g.addEventListener("mousedown", function (e) {
+      startDragFurniture(e, item.id);
+    });
+
+    svg.appendChild(g);
+  }
+
+  // ---------- Door rendering ----------
+  function doorGeometry(door) {
+    var origin = roomOriginPx();
+    var wIn = room.widthIn, dIn = room.depthIn;
+    var pos = door.positionIn;
+    var half = door.widthIn / 2;
+    var x1, y1, x2, y2, swingCx, swingCy, swingStart, swingEnd;
+
+    if (door.wall === "top" || door.wall === "bottom") {
+      var y = door.wall === "top" ? origin.y : origin.y + dIn * PX_PER_IN;
+      x1 = origin.x + (pos - half) * PX_PER_IN;
+      x2 = origin.x + (pos + half) * PX_PER_IN;
+      y1 = y2 = y;
+    } else {
+      var x = door.wall === "left" ? origin.x : origin.x + wIn * PX_PER_IN;
+      y1 = origin.y + (pos - half) * PX_PER_IN;
+      y2 = origin.y + (pos + half) * PX_PER_IN;
+      x1 = x2 = x;
+    }
+    return { x1: x1, y1: y1, x2: x2, y2: y2 };
+  }
+
+  function renderDoor(door) {
+    var geo = doorGeometry(door);
+    var g = el("g", { class: "door-group", "data-door-id": door.id });
+
+    // opening: erase wall segment
+    g.appendChild(el("line", { class: "door-opening", x1: geo.x1, y1: geo.y1, x2: geo.x2, y2: geo.y2 }));
+
+    // swing arc + panel, oriented into the room
+    var radius = door.widthIn * PX_PER_IN;
+    var hingeX, hingeY, panelEndX, panelEndY, arcSweep;
+    var origin = roomOriginPx();
+
+    if (door.wall === "top") {
+      hingeX = geo.x1; hingeY = geo.y1;
+      panelEndX = hingeX; panelEndY = hingeY + radius;
+      g.appendChild(el("path", { class: "door-swing",
+        d: "M " + panelEndX + " " + panelEndY + " A " + radius + " " + radius + " 0 0 1 " + geo.x2 + " " + geo.y1 }));
+    } else if (door.wall === "bottom") {
+      hingeX = geo.x1; hingeY = geo.y1;
+      panelEndX = hingeX; panelEndY = hingeY - radius;
+      g.appendChild(el("path", { class: "door-swing",
+        d: "M " + panelEndX + " " + panelEndY + " A " + radius + " " + radius + " 0 0 0 " + geo.x2 + " " + geo.y1 }));
+    } else if (door.wall === "left") {
+      hingeX = geo.x1; hingeY = geo.y1;
+      panelEndX = hingeX + radius; panelEndY = hingeY;
+      g.appendChild(el("path", { class: "door-swing",
+        d: "M " + panelEndX + " " + panelEndY + " A " + radius + " " + radius + " 0 0 0 " + geo.x1 + " " + geo.y2 }));
+    } else { // right
+      hingeX = geo.x1; hingeY = geo.y1;
+      panelEndX = hingeX - radius; panelEndY = hingeY;
+      g.appendChild(el("path", { class: "door-swing",
+        d: "M " + panelEndX + " " + panelEndY + " A " + radius + " " + radius + " 0 0 1 " + geo.x1 + " " + geo.y2 }));
+    }
+    g.appendChild(el("line", { class: "door-panel", x1: hingeX, y1: hingeY, x2: panelEndX, y2: panelEndY }));
+
+    g.addEventListener("mousedown", function (e) {
+      startDragDoor(e, door.id);
+    });
+
+    svg.appendChild(g);
+  }
+
+  // ---------- Room info panel ----------
+  function renderRoomInfo() {
+    var areaSqFt = (room.widthIn * room.depthIn) / 144;
+    var html = "";
+    html += infoLine("Dimensions", fmtFtIn(room.widthIn) + " × " + fmtFtIn(room.depthIn));
+    html += infoLine("Area", areaSqFt.toFixed(1) + " sq ft");
+    html += infoLine("Doors", String(doors.length));
+    html += infoLine("Furniture items", String(furniture.length));
+    document.getElementById("room-info").innerHTML = html;
+  }
+  function infoLine(label, value) {
+    return '<div class="info-line"><span>' + label + '</span><span>' + value + "</span></div>";
+  }
+
+  // ---------- Actions ----------
+  function addFurniture(catalogEntry) {
+    var widthIn = ftToIn(catalogEntry.widthFt);
+    var depthIn = ftToIn(catalogEntry.depthFt);
+    var item = {
+      id: "f" + (nextId++),
+      type: catalogEntry.type,
+      label: catalogEntry.label,
+      widthIn: widthIn,
+      depthIn: depthIn,
+      xIn: 12,
+      yIn: 12,
+      rotationDeg: 0
+    };
+    // clamp within room in case it's near top-left corner and room is small
+    item.xIn = Math.max(0, Math.min(item.xIn, Math.max(0, room.widthIn - widthIn)));
+    item.yIn = Math.max(0, Math.min(item.yIn, Math.max(0, room.depthIn - depthIn)));
+    furniture.push(item);
+    selectedFurnitureId = item.id;
+    render();
+  }
+
+  function removeFurniture(id) {
+    furniture = furniture.filter(function (f) { return f.id !== id; });
+    if (selectedFurnitureId === id) selectedFurnitureId = null;
+    render();
+  }
+
+  function rotateFurniture(id) {
+    var item = furniture.find(function (f) { return f.id === id; });
+    if (!item) return;
+    item.rotationDeg = (item.rotationDeg + 90) % 360;
+    var tmp = item.widthIn;
+    item.widthIn = item.depthIn;
+    item.depthIn = tmp;
+    // reclamp position
+    item.xIn = Math.max(0, Math.min(item.xIn, Math.max(0, room.widthIn - item.widthIn)));
+    item.yIn = Math.max(0, Math.min(item.yIn, Math.max(0, room.depthIn - item.depthIn)));
+    render();
+  }
+
+  function selectFurniture(id) {
+    selectedFurnitureId = id;
+    render();
+  }
+
+  function addDoor() {
+    doors.push({
+      id: "door-" + (nextId++),
+      wall: "top",
+      positionIn: Math.min(30, room.widthIn / 2),
+      widthIn: 30
+    });
+    render();
+  }
+
+  // ---------- Drag: furniture ----------
+  var dragState = null;
+
+  function startDragFurniture(e, id) {
+    e.preventDefault();
+    selectFurniture(id);
+    var item = furniture.find(function (f) { return f.id === id; });
+    if (!item) return;
+    var pt = getSvgPoint(e);
+    dragState = {
+      type: "furniture",
+      id: id,
+      offsetXIn: pt.xIn - item.xIn,
+      offsetYIn: pt.yIn - item.yIn
+    };
+    window.addEventListener("mousemove", onDragMove);
+    window.addEventListener("mouseup", onDragEnd);
+  }
+
+  function startDragDoor(e, id) {
+    e.preventDefault();
+    var pt = getSvgPoint(e);
+    var door = doors.find(function (d) { return d.id === id; });
+    if (!door) return;
+    dragState = {
+      type: "door",
+      id: id,
+      startXIn: pt.xIn,
+      startYIn: pt.yIn,
+      startPos: door.positionIn
+    };
+    window.addEventListener("mousemove", onDragMove);
+    window.addEventListener("mouseup", onDragEnd);
+  }
+
+  function getSvgPoint(e) {
+    var rect = svg.getBoundingClientRect();
+    var scaleX = svg.viewBox.baseVal.width / rect.width;
+    var scaleY = svg.viewBox.baseVal.height / rect.height;
+    var px = (e.clientX - rect.left) * scaleX;
+    var py = (e.clientY - rect.top) * scaleY;
+    var origin = roomOriginPx();
+    return {
+      xIn: (px - origin.x) / PX_PER_IN,
+      yIn: (py - origin.y) / PX_PER_IN
+    };
+  }
+
+  function snap(valIn) {
+    return Math.round(valIn / SNAP_IN) * SNAP_IN;
+  }
+
+  function onDragMove(e) {
+    if (!dragState) return;
+    var pt = getSvgPoint(e);
+
+    if (dragState.type === "furniture") {
+      var item = furniture.find(function (f) { return f.id === dragState.id; });
+      if (!item) return;
+      var newX = snap(pt.xIn - dragState.offsetXIn);
+      var newY = snap(pt.yIn - dragState.offsetYIn);
+      newX = Math.max(0, Math.min(newX, room.widthIn - item.widthIn));
+      newY = Math.max(0, Math.min(newY, room.depthIn - item.depthIn));
+      item.xIn = newX;
+      item.yIn = newY;
+      render();
+    } else if (dragState.type === "door") {
+      var door = doors.find(function (d) { return d.id === dragState.id; });
+      if (!door) return;
+      var wallLen = (door.wall === "top" || door.wall === "bottom") ? room.widthIn : room.depthIn;
+      var deltaIn = (door.wall === "top" || door.wall === "bottom") ? (pt.xIn - dragState.startXIn) : (pt.yIn - dragState.startYIn);
+      var newPos = snap(dragState.startPos + deltaIn);
+      var half = door.widthIn / 2;
+      newPos = Math.max(half, Math.min(newPos, wallLen - half));
+      door.positionIn = newPos;
+      render();
+    }
+  }
+
+  function onDragEnd() {
+    dragState = null;
+    window.removeEventListener("mousemove", onDragMove);
+    window.removeEventListener("mouseup", onDragEnd);
+  }
+
+  // click on empty svg area deselects
+  svg.addEventListener("mousedown", function (e) {
+    if (e.target === svg) {
+      selectedFurnitureId = null;
+      render();
+    }
+  });
+
+  // ---------- Keyboard ----------
+  window.addEventListener("keydown", function (e) {
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag === "INPUT") return;
+
+    if (!selectedFurnitureId) return;
+
+    if (e.key === "r" || e.key === "R") {
+      rotateFurniture(selectedFurnitureId);
+    } else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      removeFurniture(selectedFurnitureId);
+    }
+  });
+
+  // ---------- Room size inputs ----------
+  var widthFtInput = document.getElementById("width-ft");
+  var widthInInput = document.getElementById("width-in");
+  var depthFtInput = document.getElementById("depth-ft");
+  var depthInInput = document.getElementById("depth-in");
+
+  function readRoomInputs() {
+    var wFt = parseInt(widthFtInput.value, 10) || 0;
+    var wIn = parseInt(widthInInput.value, 10) || 0;
+    var dFt = parseInt(depthFtInput.value, 10) || 0;
+    var dIn = parseInt(depthInInput.value, 10) || 0;
+
+    var newWidthIn = Math.max(12, wFt * 12 + wIn);
+    var newDepthIn = Math.max(12, dFt * 12 + dIn);
+
+    room.widthIn = newWidthIn;
+    room.depthIn = newDepthIn;
+
+    // clamp furniture into new bounds
+    furniture.forEach(function (item) {
+      item.xIn = Math.max(0, Math.min(item.xIn, Math.max(0, room.widthIn - item.widthIn)));
+      item.yIn = Math.max(0, Math.min(item.yIn, Math.max(0, room.depthIn - item.depthIn)));
+    });
+    // clamp doors into new bounds
+    doors.forEach(function (door) {
+      var wallLen = (door.wall === "top" || door.wall === "bottom") ? room.widthIn : room.depthIn;
+      var half = door.widthIn / 2;
+      door.positionIn = Math.max(half, Math.min(door.positionIn, Math.max(half, wallLen - half)));
+    });
+
+    render();
+  }
+
+  [widthFtInput, widthInInput, depthFtInput, depthInInput].forEach(function (inp) {
+    inp.addEventListener("input", readRoomInputs);
+  });
+
+  // ---------- Toolbar ----------
+  document.getElementById("rotate-btn").addEventListener("click", function () {
+    if (selectedFurnitureId) rotateFurniture(selectedFurnitureId);
+  });
+  document.getElementById("delete-btn").addEventListener("click", function () {
+    if (selectedFurnitureId) removeFurniture(selectedFurnitureId);
+  });
+  document.getElementById("add-door-btn").addEventListener("click", addDoor);
+
+  // ---------- Catalog panel ----------
+  function buildCatalog() {
+    var container = document.getElementById("catalog");
+    CATALOG.forEach(function (entry) {
+      var div = document.createElement("div");
+      div.className = "catalog-item";
+      var name = document.createElement("span");
+      name.className = "name";
+      name.textContent = entry.label;
+      var dims = document.createElement("span");
+      dims.className = "dims";
+      dims.textContent = fmtFtIn(ftToIn(entry.widthFt)) + " x " + fmtFtIn(ftToIn(entry.depthFt));
+      div.appendChild(name);
+      div.appendChild(dims);
+      div.addEventListener("click", function () {
+        addFurniture(entry);
+      });
+      container.appendChild(div);
+    });
+  }
+
+  // ---------- Legend ----------
+  function buildLegend() {
+    var items = [
+      { swatch: "var(--room-fill)", border: "var(--room-wall)", label: "Room / walls" },
+      { swatch: "var(--furniture-fill)", border: "var(--furniture-stroke)", label: "Furniture" },
+      { swatch: "var(--furniture-fill)", border: "var(--furniture-selected)", label: "Selected item" },
+      { swatch: "var(--bg)", border: "var(--door-color)", label: "Door + swing" }
+    ];
+    var container = document.getElementById("legend");
+    items.forEach(function (it) {
+      var row = document.createElement("div");
+      row.className = "legend-item";
+      var sw = document.createElement("div");
+      sw.className = "legend-swatch";
+      sw.style.background = it.swatch;
+      sw.style.border = "2px solid " + it.border;
+      row.appendChild(sw);
+      var label = document.createElement("span");
+      label.textContent = it.label;
+      row.appendChild(label);
+      container.appendChild(row);
+    });
+  }
+
+  // ---------- Init ----------
+  buildCatalog();
+  buildLegend();
+  render();
+})();
+</script>
+</body>
+</html>
